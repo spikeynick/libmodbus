@@ -16,7 +16,7 @@ src/modbus-data.c
 
 set(LIBMODBUS_HEADERS
 src/modbus.hpp
-src/modbus.h
+src/util.hpp
 src/modbus-private.h
 src/modbus-rtu.hpp
 src/modbus-version.h
