@@ -25,6 +25,8 @@
 
 #define _MODBUS_RTU_CHECKSUM_LENGTH    2
 
+#define MODBUS_RTU_MAX_ADU_LENGTH  256
+
 #if defined(_WIN32)
 #if !defined(ENOTSUP)
 #define ENOTSUP WSAEOPNOTSUPP
