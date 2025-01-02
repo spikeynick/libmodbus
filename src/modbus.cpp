@@ -24,12 +24,13 @@
 
 
 #include "modbus.hpp"
-
+#include "bl/logger/log.hpp"
 
 Modbus::Modbus(int slave, int header_length, int checksum_length, int max_adu_length) :
 	slave(slave),
 	s(-1),
 	debug(FALSE),
+    trace(false),
 	error_recovery(MODBUS_ERROR_RECOVERY_NONE),
 	header_length(header_length),
 	checksum_length(checksum_length),
@@ -105,15 +106,15 @@ const char *Modbus::modbus_strerror(int errnum) {
 
 void Modbus::_error_print( const char *context)
 {
-	if (this->debug) {
-		fprintf(stderr, "ERROR %s", modbus_strerror(errno));
+	//if (this->debug) {
 		if (context != NULL) {
-			fprintf(stderr, ": %s\n", context);
+			bl_log_error("--Modbus: " << modbus_strerror(errno) << " - "<<context);
+
 		}
 		else {
-			fprintf(stderr, "\n");
+			bl_log_error("--Modbus: " << modbus_strerror(errno) );
 		}
-	}
+	//}
 }
 
 void Modbus::_sleep_response_timeout()
@@ -180,10 +181,11 @@ int Modbus::send_msg(uint8_t *msg, int msg_length)
 
 	msg_length = this->send_msg_pre(msg, msg_length);
 
-	if (this->debug) {
+	if (this->debug ) {
+		std::ostringstream str;
 		for (i = 0; i < msg_length; i++)
-			printf("[%.2X]", msg[i]);
-		printf("\n");
+			str << "[" << std::hex << (short)msg[i] << "]";
+		bl_log_debug(str.str());
 	}
 
 	/* In recovery mode, the write command will be issued until to be
@@ -191,7 +193,7 @@ int Modbus::send_msg(uint8_t *msg, int msg_length)
 	do {
 		rc = this->send(msg, msg_length);
 		if (rc == -1) {
-			_error_print(NULL);
+			_error_print("send_msg");
 			if (this->error_recovery & MODBUS_ERROR_RECOVERY_LINK) {
 				int saved_errno = errno;
 
@@ -382,10 +384,10 @@ int Modbus::_modbus_receive_msg(uint8_t *msg, msg_type_t msg_type)
 
 	if (this->debug) {
 		if (msg_type == MSG_INDICATION) {
-			printf("Waiting for an indication...\n");
+			bl_log_debug("Waiting for an indication...");
 		}
 		else {
-			printf("Waiting for a confirmation...\n");
+			bl_log_debug("Waiting for a confirmation...");
 		}
 	}
 
@@ -422,7 +424,7 @@ int Modbus::_modbus_receive_msg(uint8_t *msg, msg_type_t msg_type)
 	while (length_to_read != 0) {
 		rc = this->select(&rset, p_tv, length_to_read);
 		if (rc == -1) {
-			_error_print("select");
+			//_error_print("select");
 			if (this->error_recovery & MODBUS_ERROR_RECOVERY_LINK) {
 				int saved_errno = errno;
 
@@ -460,10 +462,14 @@ int Modbus::_modbus_receive_msg(uint8_t *msg, msg_type_t msg_type)
 		}
 
 		/* Display the hex code of each character received */
-		if (this->debug) {
+		if (this->debug ) {
 			int i;
-			for (i = 0; i < rc; i++)
-				printf("<%.2X>", msg[msg_length + i]);
+			std::ostringstream str;
+            str << "length to read: " << (int)length_to_read << "  ";
+            for (i = 0; i < rc; i++)
+				str << "<" << std::hex << (short)msg[msg_length + i] << ">";
+			
+			bl_log_debug(str.str());
 		}
 
 		/* Sums bytes received */
@@ -472,7 +478,8 @@ int Modbus::_modbus_receive_msg(uint8_t *msg, msg_type_t msg_type)
 		length_to_read -= rc;
 
 		if (length_to_read == 0) {
-			length_to_read = get_next_read_size(msg, msg_length, msg_type);
+            uint8_t next = get_next_read_size(msg, msg_length, msg_type);
+			length_to_read = next;
 
 		}
 
@@ -489,8 +496,6 @@ int Modbus::_modbus_receive_msg(uint8_t *msg, msg_type_t msg_type)
 		expiration of response timeout (for CONFIRMATION only) */
 	}
 
-	if (this->debug)
-		printf("\n");
 
 	return this->check_integrity(msg, msg_length);
 }
@@ -547,12 +552,12 @@ int Modbus::check_confirmation(uint8_t *req,
 			else {
 				errno = EMBBADEXC;
 			}
-			_error_print(NULL);
+			_error_print("Check_confim 1");
 			return -1;
 		}
 		else {
 			errno = EMBBADEXC;
-			_error_print(NULL);
+			_error_print("check_confim 2");
 			return -1;
 		}
 	}
@@ -566,11 +571,9 @@ int Modbus::check_confirmation(uint8_t *req,
 
 		/* Check function code */
 		if (function != req[offset]) {
-			if (this->debug) {
-				fprintf(stderr,
-					"Received function not corresponding to the request (0x%X != 0x%X)\n",
-					function, req[offset]);
-			}
+			//if (this->debug) {
+				bl_log_warn("Received function not corresponding to the request (0x" << std::hex << (short)function << " != 0x" << std::hex<<(short)req[offset]<<")");
+			//}
 			if (this->error_recovery & MODBUS_ERROR_RECOVERY_PROTOCOL) {
 				_sleep_response_timeout();
 				flush();
@@ -616,11 +619,9 @@ int Modbus::check_confirmation(uint8_t *req,
 			rc = rsp_nb_value;
 		}
 		else {
-			if (this->debug) {
-				fprintf(stderr,
-					"Quantity not corresponding to the request (%d != %d)\n",
-					rsp_nb_value, req_nb_value);
-			}
+			//if (this->debug) {
+				bl_log_error("Quantity not corresponding to the request (" << rsp_nb_value << " != " << req_nb_value<<")");
+			//}
 
 			if (this->error_recovery & MODBUS_ERROR_RECOVERY_PROTOCOL) {
 				_sleep_response_timeout();
@@ -632,11 +633,9 @@ int Modbus::check_confirmation(uint8_t *req,
 		}
 	}
 	else {
-		if (this->debug) {
-			fprintf(stderr,
-				"Message length not corresponding to the computed length (%d != %d)\n",
-				rsp_length, rsp_length_computed);
-		}
+		//if (this->debug) {
+			bl_log_error("Message length not corresponding to the computed length (" << rsp_length << " != " << rsp_length_computed << ")");
+		//}
 		if (this->error_recovery & MODBUS_ERROR_RECOVERY_PROTOCOL) {
 			_sleep_response_timeout();
 			flush();
@@ -688,8 +687,10 @@ int Modbus::response_exception(sft_t *sft,
 		va_list ap;
 
 		va_start(ap, template_);
-		vfprintf(stderr, template_, ap);
+		char ss[1024];
+		vsnprintf(ss, 1024, template_, ap);
 		va_end(ap);
+		bl_log_error(ss);
 	}
 
 	/* Flush if required */
@@ -935,9 +936,9 @@ int Modbus::modbus_reply(const uint8_t *req,
 	}
 									break;
 	case MODBUS_FC_READ_EXCEPTION_STATUS:
-		if (this->debug) {
+		//if (this->debug) {
 			fprintf(stderr, "FIXME Not implemented\n");
-		}
+		//}
 		errno = ENOPROTOOPT;
 		return -1;
 		break;
@@ -1071,13 +1072,19 @@ int Modbus::read_io_status(int function,
 		int offset;
 		int offset_end;
 
-		rc = _modbus_receive_msg(rsp, MSG_CONFIRMATION);
-		if (rc == -1)
-			return -1;
+        for (int i = 0; i < 3; ++i) {
+            rc = _modbus_receive_msg(rsp, MSG_CONFIRMATION);
+            if (rc == -1)
+                continue;
 
-		rc = check_confirmation(req, rsp, rc);
-		if (rc == -1)
-			return -1;
+            rc = check_confirmation(req, rsp, rc);
+            if (rc == -1)
+                continue;
+            break;
+        }
+        if (rc == -1) {
+            return -1;
+        }
 
 		offset = this->header_length + 2;
 		offset_end = offset + rc;
@@ -1103,11 +1110,11 @@ int Modbus::modbus_read_bits(int addr, int nb, uint8_t *dest)
 	int rc;
 
 	if (nb > MODBUS_MAX_READ_BITS) {
-		if (this->debug) {
+		//if (this->debug) {
 			fprintf(stderr,
 				"ERROR Too many bits requested (%d > %d)\n",
 				nb, MODBUS_MAX_READ_BITS);
-		}
+		//}
 		errno = EMBMDATA;
 		return -1;
 	}
@@ -1127,11 +1134,11 @@ int Modbus::modbus_read_input_bits(int addr, int nb, uint8_t *dest)
 	int rc;
 
 	if (nb > MODBUS_MAX_READ_BITS) {
-		if (this->debug) {
+		//if (this->debug) {
 			fprintf(stderr,
 				"ERROR Too many discrete inputs requested (%d > %d)\n",
 				nb, MODBUS_MAX_READ_BITS);
-		}
+		//}
 		errno = EMBMDATA;
 		return -1;
 	}
@@ -1154,11 +1161,11 @@ int Modbus::read_registers(int function, int addr, int nb,
 	uint8_t rsp[MAX_MESSAGE_LENGTH];
 
 	if (nb > MODBUS_MAX_READ_REGISTERS) {
-		if (this->debug) {
+		//if (this->debug) {
 			fprintf(stderr,
 				"ERROR Too many registers requested (%d > %d)\n",
 				nb, MODBUS_MAX_READ_REGISTERS);
-		}
+		//}
 		errno = EMBMDATA;
 		return -1;
 	}
@@ -1197,11 +1204,11 @@ int Modbus::modbus_read_registers(int addr, int nb, uint16_t *dest)
 	int status;
 
 	if (nb > MODBUS_MAX_READ_REGISTERS) {
-		if (this->debug) {
+		//if (this->debug) {
 			fprintf(stderr,
 				"ERROR Too many registers requested (%d > %d)\n",
 				nb, MODBUS_MAX_READ_REGISTERS);
-		}
+		//}
 		errno = EMBMDATA;
 		return -1;
 	}
@@ -1283,10 +1290,10 @@ int Modbus::modbus_write_bits(int addr, int nb, const uint8_t *src)
 	uint8_t req[MAX_MESSAGE_LENGTH];
 
 	if (nb > MODBUS_MAX_WRITE_BITS) {
-		if (this->debug) {
+		//if (this->debug) {
 			fprintf(stderr, "ERROR Writing too many bits (%d > %d)\n",
 				nb, MODBUS_MAX_WRITE_BITS);
-		}
+		//}
 		errno = EMBMDATA;
 		return -1;
 	}
@@ -1337,11 +1344,11 @@ int Modbus::modbus_write_registers(int addr, int nb, const uint16_t *src)
 	uint8_t req[MAX_MESSAGE_LENGTH];
 
 	if (nb > MODBUS_MAX_WRITE_REGISTERS) {
-		if (this->debug) {
+		//if (this->debug) {
 			fprintf(stderr,
 				"ERROR Trying to write to too many registers (%d > %d)\n",
 				nb, MODBUS_MAX_WRITE_REGISTERS);
-		}
+		//}
 		errno = EMBMDATA;
 		return -1;
 	}
@@ -1423,21 +1430,21 @@ int Modbus::modbus_write_and_read_registers(
 
 
 	if (write_nb > MODBUS_MAX_WR_WRITE_REGISTERS) {
-		if (this->debug) {
+		//if (this->debug) {
 			fprintf(stderr,
 				"ERROR Too many registers to write (%d > %d)\n",
 				write_nb, MODBUS_MAX_WR_WRITE_REGISTERS);
-		}
+		//}
 		errno = EMBMDATA;
 		return -1;
 	}
 
 	if (read_nb > MODBUS_MAX_WR_READ_REGISTERS) {
-		if (this->debug) {
+		//if (this->debug) {
 			fprintf(stderr,
 				"ERROR Too many registers requested (%d > %d)\n",
 				read_nb, MODBUS_MAX_WR_READ_REGISTERS);
-		}
+		//}
 		errno = EMBMDATA;
 		return -1;
 	}

@@ -5,7 +5,6 @@
 #else
 # include "stdint.h"
 # include <time.h>
-typedef int ssize_t;
 #endif
 #include <sys/types.h>
 #include <config.h>
@@ -128,6 +127,7 @@ public:
 	const unsigned short checksum_length;
 	const unsigned short max_adu_length;
 	int debug;
+    bool trace;
 	int error_recovery;
 	struct timeval response_timeout;
 	struct timeval byte_timeout;

@@ -1,5 +1,8 @@
 #pragma once
 #include <stdint.h>
+#include <string>
+#include <sstream>
+#include <boost/shared_ptr.hpp>
 #if defined(_WIN32)
 #include <windows.h>
 #else
@@ -7,6 +10,12 @@
 #endif
 #include "modbus-version.h"
 #include "modbus-rtu-private.h"
+
+#if defined(_WIN32)
+#  include <winsock2.h>
+#else
+#  include <arpa/inet.h>
+#endif
 
 #ifndef FALSE
 #define FALSE 0
@@ -23,6 +32,27 @@
 #ifndef ON
 #define ON 1
 #endif
+typedef int ssize_t;
+
+
+class MBConnection {
+public:
+    virtual int connect() = 0;
+    virtual void close() = 0;
+    virtual bool flush() = 0;
+    virtual int send(uint8_t *msg, int msg_length) = 0;
+    virtual int select(fd_set * rset, timeval * tv, int length_to_read)=0;
+    virtual ssize_t recv(uint8_t * rsp, int rsp_length)=0;
+    virtual bool read_char(uint8_t & c, timeval * tv = NULL)=0;
+    virtual void purge() = 0;
+    virtual bool isSerial() = 0;
+    virtual bool isDebug() = 0;
+	virtual bool isErrorState() = 0;
+
+};
+typedef boost::shared_ptr<MBConnection> MBConnectionPtr;
+
+
 
 /* Modbus function codes */
 #define MODBUS_FC_READ_COILS                0x01
@@ -194,6 +224,8 @@ int win32_ser_select(struct win32_ser *ws, int max_len,
 
 int win32_ser_read(struct win32_ser *ws, uint8_t *p_msg,
 	unsigned int max_len);
+
+int serial_connect(const std::string& device, const int baud, const uint8_t data_bit, const uint8_t stop_bit, const char parity, win32_ser *w_ser, DCB *old_dcb, std::ostringstream &err);
 
 
 uint16_t crc16(uint8_t *buffer, uint16_t buffer_length);
